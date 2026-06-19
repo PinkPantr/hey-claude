@@ -20,7 +20,7 @@ Run: `claude-voice devices` → JSON with `inputs`, `outputs`, `default_source`,
 
 ## 3. Ask the user (use AskUserQuestion)
 Ask up to three questions in one call:
-1. **Mic** — options from `inputs[].name` (label them readably; mark the one matching `default_source` as default). On this machine the K66 (`alsa_input.usb-K66_...`) is the known-good mic.
+1. **Mic** — options from `inputs[].name` (label them readably; mark the one matching `default_source` as the default — that's the user's current system mic). Prefer a dedicated/USB mic over a webcam mic if both are present.
 2. **Output mode** — **Text (reply in this live chat)** vs **Voice (spoken replies)**. Explain: text injects your speech into *this* conversation and I answer here with full context + normal permission prompts; voice uses a headless Claude + spoken reply and is gated by a spoken "confirm" before any action.
 3. **Speaker** — ONLY if they chose Voice. Options from `outputs[].name` (default = `default_sink`).
 
