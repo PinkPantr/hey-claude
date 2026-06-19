@@ -97,9 +97,9 @@ Say **"hey claude"**, then speak. Spoken controls: "switch to text/voice", "stop
 > ⚠️ **This path has not been run on real Windows hardware yet.** Implemented + reviewed, unverified.
 > If you're a Claude session on Windows, this section is your test guide.
 
-**Requirements:** Windows 10/11 · **Python 3.11 or 3.12** (NOT 3.10 — onnxruntime ≥1.27 requires 3.11+;
-the `py` launcher is used: `py -3.11`) · **WezTerm** (`winget install wez.wezterm`) for text mode · the
-**Claude Code CLI** logged in · a microphone.
+**Requirements:** Windows 10/11 · **Python 3.11+** (3.11/3.12/3.13 — NOT 3.10; onnxruntime ≥1.27 requires
+3.11+. `install.ps1` probes `py -3.11/-3.12/-3.13` then `python` and picks the first ≥3.11) · **WezTerm**
+(`winget install wez.wezterm`) for text mode · the **Claude Code CLI** logged in · a microphone.
 
 **Install + test (step by step):**
 1. `git clone https://github.com/PinkPantr/hey-claude.git` and `cd hey-claude`.

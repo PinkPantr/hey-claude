@@ -23,7 +23,9 @@ warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 # ── 1. prerequisites (per OS) ──────────────────────────────────────────────
 say "Checking prerequisites ($OS) …"
 command -v claude >/dev/null || warn "Claude Code CLI ('claude') not found — install it and run 'claude' once to log in. The assistant drives it."
-command -v kitty  >/dev/null || warn "kitty not found — needed for TEXT mode (live-CLI inject). voice mode works without it."
+if ! command -v wezterm >/dev/null && ! command -v kitty >/dev/null && ! command -v tmux >/dev/null; then
+  warn "No text-mode terminal found (WezTerm recommended / kitty / tmux). Only needed for TEXT mode (live-CLI inject); voice mode works without any."
+fi
 case "$OS" in
   Linux)
     command -v parecord >/dev/null || warn "parecord not found — install PipeWire/PulseAudio (e.g. pipewire-pulse) for mic + playback."
@@ -102,10 +104,10 @@ macOS next steps:
     → turn on your terminal app (Terminal/iTerm/kitty), then RELAUNCH the terminal.
     (A detached/backgrounded process may not get the prompt — run it attached the first time.)
   • Check capture level:  claude-voice test mic
-  • For TEXT mode, enable kitty remote control in ~/.config/kitty/kitty.conf:
-        allow_remote_control socket-only
-        listen_on unix:/tmp/kitty
-    then fully restart kitty once.
+  • For TEXT mode, run Claude Code inside a supported terminal (the /claude-voice skill auto-detects):
+        - WezTerm (recommended) — no setup; install:  brew install --cask wezterm
+        - kitty — add to ~/.config/kitty/kitty.conf:  allow_remote_control socket-only / listen_on unix:/tmp/kitty  (then restart kitty)
+        - tmux — works out of the box
   • Start:  claude-voice start   (or run the /claude-voice skill).  Say "hey claude", then speak.
   • Note: on macOS, spoken replies use the system default output (per-device output_sink is ignored).
 EOF
@@ -113,10 +115,10 @@ else
 cat <<'EOF'
 
 Next steps:
-  • For TEXT mode, enable kitty remote control in ~/.config/kitty/kitty.conf:
-        allow_remote_control socket-only
-        listen_on unix:/tmp/kitty
-    then fully restart kitty once.
+  • For TEXT mode, run Claude Code inside a supported terminal (the /claude-voice skill auto-detects):
+        - WezTerm (recommended, cross-platform) — no setup needed
+        - kitty — add to ~/.config/kitty/kitty.conf:  allow_remote_control socket-only / listen_on unix:/tmp/kitty  (then restart kitty)
+        - tmux — works out of the box
   • Start it:  claude-voice start      (or run the /claude-voice skill in Claude Code)
   • Say "hey claude", then speak.
 EOF

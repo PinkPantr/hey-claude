@@ -11,7 +11,7 @@ is remote (via the Claude Code CLI you already have).
 ## How it works
 
 ```
-mic (parecord)
+mic (parecord on Linux / sounddevice on macOS+Windows)
    │
    ▼
 openWakeWord ──"hey claude"?──▶ faster-whisper (base.en)  speech → text
@@ -20,9 +20,9 @@ openWakeWord ──"hey claude"?──▶ faster-whisper (base.en)  speech → t
                           ┌─────────────┴─────────────┐
                   text mode │                           │ voice mode
                             ▼                           ▼
-            type into live kitty terminal      headless `claude -p`
-            (kitty @ send-text, auto-submit)    + Piper TTS spoken reply
-                                                ("confirm" gate before actions)
+            inject into live terminal           headless `claude -p`
+            (wezterm — default; or kitty/tmux)   + Piper TTS spoken reply
+            auto-submits into this chat          ("confirm" gate before actions)
 ```
 
 Details in [knowledge/architecture.md](knowledge/architecture.md).
@@ -35,7 +35,7 @@ Details in [knowledge/architecture.md](knowledge/architecture.md).
   [knowledge/install-and-run.md](knowledge/install-and-run.md#macos-experimental--untested).
 - **Windows** — experimental, ⚠️ **NOT YET TESTED on real hardware.** Native port: `sounddevice` +
   `winsound` audio, `wezterm` text inject, `tasklist`/`taskkill` process control, and `install.ps1`.
-  Run Claude Code inside WezTerm for text mode. Needs Python 3.11/3.12.
+  Run Claude Code inside WezTerm for text mode. Needs Python 3.11+ (onnxruntime requirement).
 
 ## What you need
 
@@ -54,12 +54,14 @@ cd ~/claude-voice
 This builds the venv, installs deps, places the **bundled** models (wake word, Piper voice, feature
 models), fetches the whisper model, and installs the `claude-voice` launcher + the `/claude-voice` skill.
 
-For **text mode**, enable kitty remote control in `~/.config/kitty/kitty.conf`:
-```
-allow_remote_control socket-only
-listen_on unix:/tmp/kitty
-```
-then restart kitty once.
+For **text mode**, run Claude Code inside one of these terminals (the skill auto-detects which):
+- **WezTerm (recommended, all platforms incl. Windows)** — no setup; remote control is on by default.
+- **kitty** — enable remote control in `~/.config/kitty/kitty.conf`, then fully restart kitty once:
+  ```
+  allow_remote_control socket-only
+  listen_on unix:/tmp/kitty
+  ```
+- **tmux** — works out of the box.
 
 ## Use
 

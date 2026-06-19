@@ -5,7 +5,7 @@ description: Turn on hands-free voice control of Claude. Run when the user types
 
 # /claude-voice — launch the voice assistant
 
-Turns on the local "hey jarvis / hey claude" voice listener (`~/claude-voice/`). Follow these steps exactly.
+Turns on the local **"hey claude"** voice listener (`~/claude-voice/`; the custom `hey_claude.onnx` model ships in `models/`). Follow these steps exactly.
 
 ## 0. Handle stop/off
 If the user's args contain `stop`, `off`, or `quit`: run `claude-voice stop` and report. Done.

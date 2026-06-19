@@ -4,14 +4,15 @@ claude-voice — hands-free voice control for the Claude CLI.
 
 Two output modes (chosen at launch, usually via the /claude-voice skill):
   • text  : transcribed speech is INJECTED into your live Claude terminal window
-            (kitty `@ send-text` or tmux `send-keys`) and auto-submits — you read
-            the reply in the real conversation, full context, real permission prompts.
+            (wezterm — default, cross-platform incl. Windows; or kitty / tmux) and
+            auto-submits — you read the reply in the real conversation, full context.
   • voice : transcribed speech goes to a headless `claude -p` and the reply is
             spoken back via Piper TTS. Self-contained, hands-free, no terminal needed.
             Protected by a spoken-"confirm" gate before any state-changing action.
 
-Pipeline: parecord (PipeWire) → openWakeWord → faster-whisper → (inject | claude -p).
-All local. Config lives in ~/claude-voice/config.json.
+Pipeline: mic (parecord on Linux / sounddevice on macOS+Windows) → openWakeWord →
+faster-whisper → (inject | claude -p). All local. Config: ~/claude-voice/config.json.
+Platforms: Linux tested; macOS + Windows implemented but UNTESTED on real hardware.
 
 Commands:
   claude-voice devices                 # list mics + speakers as JSON
@@ -81,14 +82,14 @@ MIN_SPEECH = 0.35
 DEFAULT_CONFIG = {
     "input_source": "",          # "" = system default mic
     "output_sink": "",           # "" = default sink (TTS playback)
-    "mode": "voice",             # "voice" | "text"
-    "wake_model": "hey_jarvis",  # bundled name, or a path to a custom .onnx
+    "mode": "text",              # "text" | "voice"  (matches shipped config.json)
+    "wake_model": "hey_claude.onnx",  # bundled custom model; or a built-in name like "hey_jarvis"
     "wake_threshold": 0.5,
     "whisper_model": "base.en",
     "claude_cwd": HOME,          # cwd for headless claude (voice mode)
     "claude_perm": "default",    # safe default; set "bypassPermissions" to let voice mode act autonomously
     "inject": {                  # text mode target
-        "backend": "",           # "wezterm" (cross-platform, recommended) | "kitty" | "tmux"
+        "backend": "wezterm",    # "wezterm" (cross-platform, recommended) | "kitty" | "tmux"
         "wezterm_pane_id": "",   # wezterm: target pane (from $WEZTERM_PANE / `wezterm cli list`)
         "kitty_listen_on": "",
         "kitty_window_id": "",
