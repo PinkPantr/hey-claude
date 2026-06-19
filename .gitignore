@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime / test artifacts (NOT the bundled models)
+*.wav
+!ack.wav
+*.log
+voice_mode
+voice-test.txt
+
+# Models ARE bundled (self-contained), EXCEPT whisper (>100MB, fetched by install.sh)
+# voices/*.onnx, models/**/*.onnx are intentionally committed.
+
+# runtime pidfile
+daemon.pid
+*.pid

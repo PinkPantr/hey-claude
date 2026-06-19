@@ -1,0 +1,15 @@
+{
+  "input_source": "",
+  "output_sink": "",
+  "mode": "text",
+  "wake_model": "hey_claude.onnx",
+  "wake_threshold": 0.5,
+  "whisper_model": "base.en",
+  "claude_perm": "default",
+  "inject": {
+    "backend": "kitty",
+    "kitty_listen_on": "",
+    "kitty_window_id": "",
+    "tmux_pane": ""
+  }
+}

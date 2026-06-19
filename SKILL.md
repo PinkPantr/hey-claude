@@ -1,0 +1,58 @@
+---
+name: claude-voice
+description: Turn on hands-free voice control of Claude. Run when the user types /claude-voice or says "turn on voice", "let me talk to you", "enable voice mode", "start the voice assistant". Interactively picks the mic + output, asks text (inject into this live chat) or voice (spoken replies), then launches the always-listening daemon.
+---
+
+# /claude-voice — launch the voice assistant
+
+Turns on the local "hey jarvis / hey claude" voice listener (`~/claude-voice/`). Follow these steps exactly.
+
+## 0. Handle stop/off
+If the user's args contain `stop`, `off`, or `quit`: run `claude-voice stop` and report. Done.
+
+## 1. Preconditions
+Run: `claude-voice status` (binary is `~/.local/bin/claude-voice`).
+- If the command is missing, tell the user to run the repo's `install.sh` first and stop.
+- If it shows **RUNNING**, ask the user whether to **reconfigure** (stop + relaunch) or **leave it**. If leave, stop here.
+
+## 2. Enumerate devices
+Run: `claude-voice devices` → JSON with `inputs`, `outputs`, `default_source`, `default_sink`.
+
+## 3. Ask the user (use AskUserQuestion)
+Ask up to three questions in one call:
+1. **Mic** — options from `inputs[].name` (label them readably; mark the one matching `default_source` as default). On this machine the K66 (`alsa_input.usb-K66_...`) is the known-good mic.
+2. **Output mode** — **Text (reply in this live chat)** vs **Voice (spoken replies)**. Explain: text injects your speech into *this* conversation and I answer here with full context + normal permission prompts; voice uses a headless Claude + spoken reply and is gated by a spoken "confirm" before any action.
+3. **Speaker** — ONLY if they chose Voice. Options from `outputs[].name` (default = `default_sink`).
+
+## 4. If mode = text → resolve the live-inject target
+Detect the terminal and capture the target, by running:
+```
+echo "KITTY_LISTEN_ON=$KITTY_LISTEN_ON ; KITTY_WINDOW_ID=$KITTY_WINDOW_ID ; TMUX_PANE=$TMUX_PANE"
+```
+- **kitty:** if `KITTY_LISTEN_ON` is set → use `--inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"`.
+  If it is **empty**, kitty remote control isn't active: confirm `~/.config/kitty/kitty.conf` has `allow_remote_control socket-only` + `listen_on unix:/tmp/kitty` (it should), then tell the user to **fully restart kitty once** and re-run `/claude-voice`. Stop here — do not launch.
+- **tmux:** else if `TMUX_PANE` is set → use `--inject tmux --tmux-pane "$TMUX_PANE"`.
+- **neither:** tell the user text mode needs kitty (with remote control on) or tmux; offer Voice mode instead. Stop.
+
+## 5. Launch the daemon (detached so it survives this session)
+Build the command from the answers, e.g.:
+```
+setsid claude-voice start \
+  --mode <text|voice> \
+  --input "<chosen mic name>" \
+  [--output "<chosen sink name>"]  \
+  [--inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"] \
+  > ~/claude-voice/daemon.log 2>&1 < /dev/null &
+```
+Then wait ~3s and run `claude-voice status` + `tail -n 5 ~/claude-voice/daemon.log` to confirm it reached "listening".
+
+## 6. Confirm to the user
+Tell them, concisely:
+- It's listening; the wake word is **"hey jarvis"** (until the custom `hey_claude.onnx` is installed in `~/claude-voice/models/`).
+- **text mode:** say *"hey jarvis, <request>"* and it appears here and submits itself — no Enter.
+- **voice mode:** say *"hey jarvis, <question>"* for a spoken answer; actions require you to say **"confirm"**.
+- To stop: `/claude-voice stop`, or say **"stop listening"**.
+
+## Notes
+- All logic lives in the `claude-voice` CLI (`devices`/`start`/`stop`/`status`) — this skill only drives the questions, so it stays portable for anyone who installs the repo.
+- Config is saved to `~/claude-voice/config.json`; next run defaults to the last choice.
