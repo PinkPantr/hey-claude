@@ -33,9 +33,9 @@ Details in [knowledge/architecture.md](knowledge/architecture.md).
 - **macOS — experimental, ⚠️ NOT YET TESTED on a real Mac.** Audio uses `sounddevice` + `afplay`
   instead of PipeWire; everything else is cross-platform. Best-effort until verified — see
   [knowledge/install-and-run.md](knowledge/install-and-run.md#macos-experimental--untested).
-- **Windows** — not a full port yet, but the hard part (text-mode injection) is solved via the
-  `wezterm` backend (`wezterm cli send-text` runs natively on Windows); audio + daemon process-control
-  remain to be done. Realistic, just not built/tested.
+- **Windows** — experimental, ⚠️ **NOT YET TESTED on real hardware.** Native port: `sounddevice` +
+  `winsound` audio, `wezterm` text inject, `tasklist`/`taskkill` process control, and `install.ps1`.
+  Run Claude Code inside WezTerm for text mode. Needs Python 3.11/3.12.
 
 ## What you need
 
@@ -84,7 +84,6 @@ models/             hey_claude.onnx (trained wake word) + oww-features/ (feature
 voices/             Piper TTS voice
 ```
 
-Linux is tested; macOS is experimental and **not yet tested on real hardware**; a Windows port is feasible
-(text-mode inject solved via the WezTerm backend) but not yet built.
+Linux is tested; macOS **and Windows** are implemented but **not yet tested on real hardware** (experimental).
 The wake-word *training* process is intentionally not in this repo — this is the finished product
 (see [knowledge/wake-word.md](knowledge/wake-word.md)).

@@ -21,7 +21,7 @@ Run: `claude-voice devices` → JSON with `inputs`, `outputs`, `default_source`,
 ## 3. Ask the user (use AskUserQuestion)
 Ask up to three questions in one call:
 1. **Mic** — options from `inputs[].name` (label them readably; mark the one matching `default_source` as the default — that's the user's current system mic). Prefer a dedicated/USB mic over a webcam mic if both are present.
-2. **Output mode** — **Text (reply in this live chat)** vs **Voice (spoken replies)**. Explain: text injects your speech into *this* conversation and I answer here with full context + normal permission prompts; voice uses a headless Claude + spoken reply and is gated by a spoken "confirm" before any action.
+2. **Output mode** — **Text (reply in this live chat)** vs **Voice (spoken replies)**. Explain: text injects your speech into *this* conversation and I answer here with full context + normal permission prompts; voice uses a headless Claude + spoken reply and is gated by a spoken "confirm" before any action. (On **Windows**, recommend **Text** — voice-mode TTS via piper is extra-experimental there.)
 3. **Speaker** — ONLY if they chose Voice. Options from `outputs[].name` (default = `default_sink`).
 
 ## 4. If mode = text → resolve the live-inject target
@@ -37,7 +37,7 @@ Pick the backend for the terminal you're actually in, in this order:
 - **none:** tell the user text mode needs WezTerm (recommended), kitty (remote control on), or tmux; offer Voice mode instead. Stop.
 
 ## 5. Launch the daemon (detached so it survives this session)
-Build the command from the answers, e.g.:
+**Linux/macOS** (bash) — build from the answers, e.g.:
 ```
 setsid claude-voice start \
   --mode <text|voice> \
@@ -46,13 +46,25 @@ setsid claude-voice start \
   [--inject wezterm --wezterm-pane "$WEZTERM_PANE"   # OR: --inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"   # OR: --inject tmux --tmux-pane "$TMUX_PANE"] \
   > ~/claude-voice/daemon.log 2>&1 < /dev/null &
 ```
-Then wait ~3s and run `claude-voice status` + `tail -n 5 ~/claude-voice/daemon.log` to confirm it reached "listening".
+**Windows** (PowerShell — no `setsid`; WezTerm is the only viable inject backend, env var is `$env:WEZTERM_PANE`):
+```
+$log = "$env:LOCALAPPDATA\claude-voice\daemon.log"
+Start-Process -WindowStyle Hidden claude-voice -ArgumentList `
+  'start','--mode','text','--input','<chosen mic name>',`
+  '--inject','wezterm','--wezterm-pane',"$env:WEZTERM_PANE" `
+  -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+```
+(`claude-voice` is on PATH after `install.ps1`. On Windows, **TEXT mode is the target**; voice mode is
+extra-experimental there (piper-tts CLI on Windows unverified). A hidden process discards output unless
+you `-RedirectStandardOutput` as above — then read `$log`.)
+
+Then wait ~3s and run `claude-voice status` (+ read the log) to confirm it reached "listening".
 
 ## 6. Confirm to the user
 Tell them, concisely:
-- It's listening; the wake word is **"hey jarvis"** (until the custom `hey_claude.onnx` is installed in `~/claude-voice/models/`).
-- **text mode:** say *"hey jarvis, <request>"* and it appears here and submits itself — no Enter.
-- **voice mode:** say *"hey jarvis, <question>"* for a spoken answer; actions require you to say **"confirm"**.
+- It's listening; the wake word is **"hey claude"** (the custom `hey_claude.onnx` model ships in the repo, in `models/`). It also accepts "hey jarvis" if the config points at the built-in model.
+- **text mode:** say *"hey claude, <request>"* and it appears here and submits itself — no Enter.
+- **voice mode:** say *"hey claude, <question>"* for a spoken answer; actions require you to say **"confirm"**.
 - To stop: `/claude-voice stop`, or say **"stop listening"**.
 
 ## Notes

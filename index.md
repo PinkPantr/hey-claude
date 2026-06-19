@@ -37,4 +37,4 @@ claude-voice start    # or run the /claude-voice skill
 Then the user says **"hey claude"** and speaks. See `knowledge/install-and-run.md` for prerequisites
 (**WezTerm** recommended / kitty / tmux for text mode, the Claude Code CLI logged in, and a mic).
 **Linux is tested; macOS is experimental and NOT YET TESTED on real hardware** (audio falls back to
-`sounddevice`/`afplay`); a Windows port is feasible via the `wezterm` inject backend but not yet built.
+`sounddevice`/`afplay`). **Windows is also implemented (sounddevice/winsound + wezterm inject + install.ps1) but NOT YET TESTED** — needs Python 3.11/3.12 + WezTerm.

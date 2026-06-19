@@ -21,11 +21,11 @@ Commands:
   claude-voice                         # = start with existing config
 """
 import argparse
-import fcntl
 import glob
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -35,7 +35,15 @@ from collections import deque
 
 import numpy as np
 
-IS_MACOS = sys.platform == "darwin"   # audio backend selector: Linux=parecord, macOS=sounddevice
+IS_MACOS = sys.platform == "darwin"
+IS_WINDOWS = sys.platform == "win32"
+# Audio backend: Linux = parecord (tested); macOS & Windows = sounddevice (UNTESTED on real hardware).
+USE_SOUNDDEVICE = IS_MACOS or IS_WINDOWS
+# fcntl is POSIX-only (used by the Linux mic backend); it does not exist on Windows.
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 # ---------------------------------------------------------------- paths (portable)
 HOME = os.path.expanduser("~")
@@ -45,10 +53,18 @@ PIDFILE = os.path.join(PROJECT, "daemon.pid")
 VOICES_DIR = os.path.join(PROJECT, "voices")
 MODELS_DIR = os.path.join(PROJECT, "models")
 ACK_WAV = os.path.join(PROJECT, "ack.wav")
-# piper ships in the same venv as this interpreter — derive, don't hardcode
-PIPER_BIN = os.path.join(os.path.dirname(sys.executable), "piper")
-CLAUDE_BIN = os.environ.get("VOICE_CLAUDE_BIN") or (
-    os.path.join(HOME, ".local/bin/claude") if os.path.exists(os.path.join(HOME, ".local/bin/claude")) else "claude"
+# piper ships in the same venv as this interpreter — derive, don't hardcode.
+# shutil.which honors PATHEXT so it resolves Scripts\piper.exe on Windows; fall back to an
+# explicit path (Linux/macOS = extensionless "piper", byte-for-byte as before).
+PIPER_BIN = (
+    shutil.which("piper", path=os.path.dirname(sys.executable))
+    or os.path.join(os.path.dirname(sys.executable), "piper.exe" if IS_WINDOWS else "piper")
+)
+CLAUDE_BIN = (
+    os.environ.get("VOICE_CLAUDE_BIN")
+    or (os.path.join(HOME, ".local/bin/claude") if os.path.exists(os.path.join(HOME, ".local/bin/claude")) else None)
+    or shutil.which("claude")     # honors PATHEXT → resolves claude.cmd on Windows (CreateProcess can't run a bare .cmd)
+    or "claude"
 )
 
 # ---------------------------------------------------------------- audio constants
@@ -160,10 +176,10 @@ class _LinuxMic:
         self.proc.kill()
 
 
-class _MacMic:
-    """macOS capture via sounddevice/PortAudio. UNTESTED on real hardware — see README.
-    NOTE: if the terminal lacks Microphone permission, macOS returns SILENCE (zeros),
-    not an error — `claude-voice test mic` flags that case."""
+class _SoundDeviceMic:
+    """macOS + Windows capture via sounddevice/PortAudio (same API on both). UNTESTED on real
+    hardware — see README. NOTE: if mic permission isn't granted the OS returns SILENCE (zeros),
+    not an error (macOS TCC / Windows Microphone privacy) — the silence watchdog flags that."""
     def __init__(self, cfg):
         import sounddevice as sd
         self._sd = sd
@@ -209,7 +225,7 @@ class _MacMic:
 
 
 def open_mic(cfg):
-    return _MacMic(cfg) if IS_MACOS else _LinuxMic(cfg)
+    return _SoundDeviceMic(cfg) if USE_SOUNDDEVICE else _LinuxMic(cfg)
 
 def reopen_mic(cfg):
     """Open the mic, retrying with backoff so a transiently/permanently unavailable
@@ -278,6 +294,13 @@ def piper_voice_path():
     return hits[0] if hits else None
 
 def _play_wav(cfg, wav):
+    if IS_WINDOWS:
+        import winsound  # stdlib (Windows-only); blocking, plays at the wav header rate (Piper=22050)
+        try:
+            winsound.PlaySound(wav, winsound.SND_FILENAME | winsound.SND_NODEFAULT)
+        except RuntimeError as e:
+            log("playback error:", e)
+        return
     if IS_MACOS:
         # afplay plays the wav at its header sample rate (Piper = 22050 Hz). It uses the
         # system default output device; per-sink selection (output_sink) isn't supported here.
@@ -338,7 +361,8 @@ def ask_claude(prompt, cfg, system=None):
     if system:
         cmd += ["--append-system-prompt", system]
     try:
-        r = subprocess.run(cmd, cwd=cfg.get("claude_cwd", HOME), capture_output=True, text=True, timeout=300)
+        r = subprocess.run(cmd, cwd=cfg.get("claude_cwd", HOME), capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=300)
         return (r.stdout or "").strip() or (r.stderr or "").strip() or "(no reply)"
     except subprocess.TimeoutExpired:
         return "That took too long, I gave up."
@@ -449,13 +473,25 @@ def write_pid():
     os.makedirs(PROJECT, exist_ok=True)
     open(PIDFILE, "w").write(str(os.getpid()))
 
+def _pid_alive(pid):
+    if IS_WINDOWS:
+        # CRITICAL: os.kill(pid, 0) on Windows TerminateProcess()-es the target (exit 0) — it does
+        # NOT probe existence. Use tasklist instead. (CREATE_NO_WINDOW = no popup console.)
+        out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                             capture_output=True, text=True, creationflags=0x08000000).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)          # POSIX: signal 0 = existence probe (does NOT kill)
+        return True
+    except OSError:
+        return False
+
 def running_pid():
     try:
         pid = int(open(PIDFILE).read().strip())
-        os.kill(pid, 0)
-        return pid
     except (OSError, ValueError, FileNotFoundError):
         return None
+    return pid if _pid_alive(pid) else None
 
 def cleanup():
     try:
@@ -467,7 +503,11 @@ def cleanup():
 def cmd_stop():
     pid = running_pid()
     if pid:
-        os.kill(pid, signal.SIGTERM); print(f"stopped (pid {pid})")
+        if IS_WINDOWS:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, creationflags=0x08000000)
+        else:
+            os.kill(pid, signal.SIGTERM)
+        print(f"stopped (pid {pid})")
     else:
         print("not running")
 
@@ -483,19 +523,29 @@ def cmd_status():
 
 # ---------------------------------------------------------------- devices
 def list_audio():
-    if IS_MACOS:
+    if USE_SOUNDDEVICE:                                # macOS + Windows
         try:
             import sounddevice as sd
             devs = sd.query_devices()
-            din, dout = sd.default.device            # (input_idx, output_idx); -1 if none
-            inputs = [{"id": str(i), "name": d["name"]} for i, d in enumerate(devs) if d["max_input_channels"] > 0]
-            outputs = [{"id": str(i), "name": d["name"]} for i, d in enumerate(devs) if d["max_output_channels"] > 0]
+            din, dout = sd.default.device              # (input_idx, output_idx); -1 if none
+            def collect(chan_key):
+                rows, seen = [], set()
+                for i, d in enumerate(devs):
+                    if d[chan_key] <= 0:
+                        continue
+                    # Windows lists each physical device once PER host API (MME/WASAPI/…) → dedupe by name
+                    if IS_WINDOWS and d["name"] in seen:
+                        continue
+                    seen.add(d["name"])
+                    rows.append({"id": str(i), "name": d["name"]})
+                return rows
             dsrc = devs[din]["name"] if isinstance(din, int) and din >= 0 else ""
             dsink = devs[dout]["name"] if isinstance(dout, int) and dout >= 0 else ""
-            return {"inputs": inputs, "outputs": outputs, "default_source": dsrc, "default_sink": dsink}
+            return {"inputs": collect("max_input_channels"), "outputs": collect("max_output_channels"),
+                    "default_source": dsrc, "default_sink": dsink}
         except Exception as e:
             return {"inputs": [], "outputs": [], "default_source": "", "default_sink": "",
-                    "error": f"sounddevice not available ({e}) — run install.sh"}
+                    "error": f"sounddevice not available ({e}) — run the installer"}
     def parse(kind):
         try:
             out = subprocess.run(["pactl", "list", "short", kind], capture_output=True, text=True).stdout
@@ -516,21 +566,27 @@ def run_loop(cfg):
     if running_pid():
         print(f"already running (pid {running_pid()}); run 'claude-voice stop' first"); return
     write_pid()
-    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    if not IS_WINDOWS:
+        # POSIX: graceful exit on `claude-voice stop` (SIGTERM). On Windows `stop` uses taskkill /F
+        # (uncatchable TerminateProcess), so a handler wouldn't fire — the stale pidfile self-heals.
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     log("loading wake model:", cfg["wake_model"])
     model = load_wake(cfg); key = wake_key(cfg)
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.int16), cfg["whisper_model"])  # warm
     log(f"listening | mic={cfg.get('input_source') or 'default'} | mode={cfg['mode']} | wake={cfg['wake_model']}")
     notify("Claude voice", f"Listening ({cfg['mode']} mode). Say the wake word.")
     proc = reopen_mic(cfg)
-    if IS_MACOS:
-        # One-shot permission probe: a terminal without Microphone (TCC) permission gets
-        # SILENT ZEROS with no error, so the wake loop would spin forever, deaf and silent.
+    if USE_SOUNDDEVICE:
+        # One-shot permission probe: without mic permission the OS returns SILENT ZEROS with no
+        # error (macOS TCC / Windows Microphone privacy), so the wake loop would spin deaf forever.
         probe = [read_frame(proc) for _ in range(int(0.6 * SAMPLE_RATE / FRAME))]
         probe = np.concatenate([p for p in probe if p.size]) if any(p.size for p in probe) else np.zeros(0, dtype=np.int16)
         if rms(probe) < 5:
-            log("⚠️  mic is silent — on macOS this usually means the terminal lacks Microphone permission.")
-            log("    System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch it.")
+            log("⚠️  mic is silent — this usually means the app lacks Microphone permission.")
+            if IS_WINDOWS:
+                log("    Windows: Settings → Privacy & security → Microphone → allow desktop apps, then relaunch.")
+            else:
+                log("    macOS: System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch.")
     preroll = deque(maxlen=int(VAD_PREROLL * SAMPLE_RATE / FRAME))
     last_wake = 0.0
     silent_frames = 0
@@ -547,7 +603,9 @@ def run_loop(cfg):
                 silent_frames += 1
                 if silent_frames >= SILENCE_WARN and not warned_silence:
                     warned_silence = True
-                    if IS_MACOS:
+                    if IS_WINDOWS:
+                        log("⚠️  ~30s of pure silence — check Microphone permission (Settings → Privacy → Microphone) or the input device.")
+                    elif IS_MACOS:
                         log("⚠️  ~30s of pure silence — likely lost Microphone permission or the input device. "
                             "Check System Settings → Privacy & Security → Microphone, then relaunch.")
                     else:
@@ -587,9 +645,12 @@ def test_mic(cfg):
     out = os.path.join(PROJECT, "mic_test.wav"); save_wav(out, pcm)
     r = rms(pcm)
     log(f"level RMS={r:.0f} (silence<100, speech>400) — saved {out}")
-    if IS_MACOS and r < 5:
-        log("⚠️  near-silence on macOS usually means the terminal lacks Microphone permission —")
-        log("    System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch it.")
+    if USE_SOUNDDEVICE and r < 5:
+        log("⚠️  near-silence usually means the app lacks Microphone permission —")
+        if IS_WINDOWS:
+            log("    Windows: Settings → Privacy & security → Microphone → allow desktop apps, then relaunch.")
+        else:
+            log("    macOS: System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch.")
 
 def test_wake(cfg):
     log("say the wake word; scores >0.1 print. Ctrl-C to stop.")

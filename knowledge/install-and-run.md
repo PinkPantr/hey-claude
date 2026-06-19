@@ -13,9 +13,10 @@ status: active
   `sounddevice` (mic + device list) and `afplay` (playback); everything else (wake model, Whisper,
   Piper, kitty/tmux inject, Claude CLI) is cross-platform. Treat it as best-effort until verified —
   please report what works/breaks. See the macOS section below.
-- **Windows** — not yet a full port (audio + daemon process-control still need Windows work), BUT the
-  hard part — text-mode injection — is **solved**: the `wezterm` backend (`wezterm cli send-text`) runs
-  natively on Windows. So a Windows port is now realistic; it just hasn't been built/tested.
+- **Windows — experimental, NOT YET TESTED on real hardware.** A native port exists: audio via
+  `sounddevice` + `winsound`, text inject via the `wezterm` backend, Windows-safe process control
+  (`tasklist`/`taskkill`), and a PowerShell installer (`install.ps1`). Run Claude Code inside **WezTerm**
+  for text mode. See the Windows section below.
 
 # Prerequisites (what the user must provide)
 
@@ -34,15 +35,16 @@ You provide these standard pieces:
 **Linux:** PipeWire or PulseAudio (`parecord`/`paplay`/`pactl`) — present on every modern desktop distro.
 **macOS:** `afplay` (built in) + `sounddevice` (installed by `install.sh`). **Grant the terminal Microphone permission** (see below).
 
-# What install.sh does
+# What the installer does
 
+**Linux/macOS** — `./install.sh`. **Windows** — `powershell -ExecutionPolicy Bypass -File install.ps1`.
 ```bash
 git clone https://github.com/PinkPantr/hey-claude.git ~/claude-voice
 cd ~/claude-voice
-./install.sh
+./install.sh        # Linux/macOS   (Windows: powershell -ExecutionPolicy Bypass -File install.ps1)
 ```
 
-Idempotently: detects the OS; creates the venv at `~/.venvs/voice`; pip-installs `faster-whisper`,
+`install.sh` idempotently: detects the OS; creates the venv at `~/.venvs/voice`; pip-installs `faster-whisper`,
 `openwakeword`, `piper-tts>=1.4` (**+ `sounddevice` on macOS**); copies the **bundled** openWakeWord
 feature models into the venv (no download); prefetches the **whisper `base.en`** model (the only
 download — >100MB, can't ship in git); installs the `claude-voice` launcher and the `/claude-voice` skill.
@@ -89,6 +91,34 @@ Say **"hey claude"**, then speak. Spoken controls: "switch to text/voice", "stop
   (`afplay`). Set your default output in System Settings.
 - **Apple Silicon**: the models run CPU-only (no GPU), which is fine for this workload.
 - **Do NOT `brew install portaudio`** — `sounddevice`'s wheel bundles it; a brew copy can shadow it.
+
+# Windows (experimental — untested)
+
+> ⚠️ **This path has not been run on real Windows hardware yet.** Implemented + reviewed, unverified.
+> If you're a Claude session on Windows, this section is your test guide.
+
+**Requirements:** Windows 10/11 · **Python 3.11 or 3.12** (NOT 3.10 — onnxruntime ≥1.27 requires 3.11+;
+the `py` launcher is used: `py -3.11`) · **WezTerm** (`winget install wez.wezterm`) for text mode · the
+**Claude Code CLI** logged in · a microphone.
+
+**Install + test (step by step):**
+1. `git clone https://github.com/PinkPantr/hey-claude.git` and `cd hey-claude`.
+2. `powershell -ExecutionPolicy Bypass -File install.ps1` — builds the venv (Python 3.11), installs deps
+   (incl. `sounddevice`, `piper-tts>=1.4`), places the bundled models, fetches whisper, and puts a
+   `claude-voice.cmd` on your PATH. **Open a new terminal** afterward so PATH refreshes.
+3. **Grant mic permission:** Settings → Privacy & security → Microphone → "Let desktop apps access your
+   microphone" = On. (Without it, capture is silent zeros with no error — the daemon's watchdog warns.)
+4. `claude-voice devices` then `claude-voice test mic` — confirm RMS rises when you speak (not ~0).
+5. For text mode: **launch WezTerm**, run `claude` inside it, then run `/claude-voice` (it auto-detects
+   `$env:WEZTERM_PANE` and injects with `wezterm cli send-text`). Say **"hey claude, …"**.
+
+**How it differs from Linux/macOS:** mic via `sounddevice`; playback via `winsound`; process control via
+`tasklist`/`taskkill` (NOT `os.kill`, which is destructive on Windows); inject via `wezterm` only
+(kitty/tmux aren't native). Stop with `claude-voice stop` (uses `taskkill /F`) or say "stop listening".
+
+**Most likely rough edges to watch for when testing:** mic-permission silence; the `py -3.11` venv (if
+only 3.10 is installed, install fails — install 3.11/3.12); WezTerm not running when the daemon injects;
+and voice-mode TTS (`piper-tts` 1.4.x CLI on Windows — text mode doesn't need it).
 
 # Troubleshooting
 
