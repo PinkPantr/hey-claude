@@ -30,7 +30,8 @@ service is Claude itself, reached through the **Claude Code CLI** the user alrea
 
 # Status
 
-Working on Linux. The wake word is a **custom-trained "hey claude"** openWakeWord model (bundled at
-`models/hey_claude.onnx`). macOS/Windows support is future work (audio capture + terminal injection
-are currently Linux-specific). See [architecture.md](architecture.md) for how the pieces fit and
+Tested and working on **Linux**. The wake word is a **custom-trained "hey claude"** openWakeWord model
+(bundled at `models/hey_claude.onnx`). **macOS** support is implemented but **NOT YET TESTED on real
+hardware** — the audio layer falls back to `sounddevice` + `afplay`; treat it as experimental until
+verified. Windows is unsupported. See [architecture.md](architecture.md) for how the pieces fit and
 [install-and-run.md](install-and-run.md) for what you need to run it.

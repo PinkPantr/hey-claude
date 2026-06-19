@@ -35,6 +35,8 @@ from collections import deque
 
 import numpy as np
 
+IS_MACOS = sys.platform == "darwin"   # audio backend selector: Linux=parecord, macOS=sounddevice
+
 # ---------------------------------------------------------------- paths (portable)
 HOME = os.path.expanduser("~")
 PROJECT = os.environ.get("VOICE_HOME", os.path.join(HOME, "claude-voice"))
@@ -114,39 +116,120 @@ def save_wav(path, pcm):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(SAMPLE_RATE)
         w.writeframes(pcm.tobytes())
 
-def open_mic(cfg):
-    cmd = ["parecord", "--raw", "--format=s16le", f"--rate={SAMPLE_RATE}", "--channels=1"]
-    if cfg.get("input_source"):
-        cmd += ["-d", cfg["input_source"]]
-    return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+# Cross-platform mic capture, frame-by-frame, 16 kHz mono int16.
+# open_mic() returns a backend object exposing read_frame()/flush()/kill();
+# the module-level read_frame()/flush_mic() below delegate to it so every
+# call site (which passes the object as `proc`) stays unchanged.
+class _LinuxMic:
+    """Linux capture via `parecord` (PipeWire/PulseAudio) — raw s16le. UNCHANGED behavior."""
+    def __init__(self, cfg):
+        cmd = ["parecord", "--raw", "--format=s16le", f"--rate={SAMPLE_RATE}", "--channels=1"]
+        if cfg.get("input_source"):
+            cmd += ["-d", cfg["input_source"]]
+        self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
-def read_frame(proc):
-    fd = proc.stdout.fileno()
-    buf = b""
-    while len(buf) < FRAME_BYTES:
-        try:
-            chunk = os.read(fd, FRAME_BYTES - len(buf))
-        except BlockingIOError:
-            return np.zeros(0, dtype=np.int16)
-        if not chunk:
-            return np.zeros(0, dtype=np.int16)
-        buf += chunk
-    return np.frombuffer(buf, dtype=np.int16)
-
-def flush_mic(proc):
-    """Drop buffered audio (e.g. TTS echo) so the next capture starts clean."""
-    fd = proc.stdout.fileno()
-    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-    try:
-        while True:
+    def read_frame(self):
+        fd = self.proc.stdout.fileno()
+        buf = b""
+        while len(buf) < FRAME_BYTES:
             try:
-                if not os.read(fd, 65536):
+                chunk = os.read(fd, FRAME_BYTES - len(buf))
+            except BlockingIOError:
+                return np.zeros(0, dtype=np.int16)
+            if not chunk:
+                return np.zeros(0, dtype=np.int16)
+            buf += chunk
+        return np.frombuffer(buf, dtype=np.int16)
+
+    def flush(self):
+        fd = self.proc.stdout.fileno()
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+        try:
+            while True:
+                try:
+                    if not os.read(fd, 65536):
+                        break
+                except (BlockingIOError, OSError):
                     break
-            except (BlockingIOError, OSError):
-                break
-    finally:
-        fcntl.fcntl(fd, fcntl.F_SETFL, fl)
+        finally:
+            fcntl.fcntl(fd, fcntl.F_SETFL, fl)
+
+    def kill(self):
+        self.proc.kill()
+
+
+class _MacMic:
+    """macOS capture via sounddevice/PortAudio. UNTESTED on real hardware — see README.
+    NOTE: if the terminal lacks Microphone permission, macOS returns SILENCE (zeros),
+    not an error — `claude-voice test mic` flags that case."""
+    def __init__(self, cfg):
+        import sounddevice as sd
+        self._sd = sd
+        device = cfg.get("input_source") or None   # name substring or None = system default
+        try:
+            self.stream = sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
+                                            dtype="int16", blocksize=FRAME, device=device)
+        except (ValueError, sd.PortAudioError) as e:
+            # saved device name may be ambiguous/missing (sounddevice does substring match);
+            # fall back to the system default rather than failing to start.
+            if device is not None:
+                log(f"mic device {device!r} unavailable ({e}); falling back to default")
+                self.stream = sd.RawInputStream(samplerate=SAMPLE_RATE, channels=1,
+                                                dtype="int16", blocksize=FRAME, device=None)
+            else:
+                raise
+        self.stream.start()
+
+    def read_frame(self):
+        try:
+            data, _overflowed = self.stream.read(FRAME)   # blocks until FRAME frames
+        except self._sd.PortAudioError as e:
+            log("mic read error:", e)
+            return np.zeros(0, dtype=np.int16)
+        # frombuffer is a zero-copy view of PortAudio's reusable buffer; .copy() because
+        # frames are retained in the preroll deque / utterance list across reads.
+        return np.frombuffer(data, dtype=np.int16).copy()
+
+    def flush(self):
+        try:
+            n = self.stream.read_available
+            while n > 0:
+                self.stream.read(n)          # discard buffered audio without blocking
+                n = self.stream.read_available
+        except self._sd.PortAudioError:
+            pass
+
+    def kill(self):
+        try:
+            self.stream.stop(); self.stream.close()
+        except Exception:
+            pass
+
+
+def open_mic(cfg):
+    return _MacMic(cfg) if IS_MACOS else _LinuxMic(cfg)
+
+def reopen_mic(cfg):
+    """Open the mic, retrying with backoff so a transiently/permanently unavailable
+    device can't kill the daemon. On Linux open_mic practically never raises (parecord
+    Popen succeeds; EOF later drives the restart loop); on macOS a removed device raises
+    PortAudioError from RawInputStream — catch broad Exception and keep retrying."""
+    delay = 0.5
+    while True:
+        try:
+            return open_mic(cfg)
+        except Exception as e:
+            log(f"mic open failed ({e}); retrying in {delay:.1f}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 10.0)
+
+def read_frame(mic):
+    return mic.read_frame()
+
+def flush_mic(mic):
+    """Drop buffered audio (e.g. TTS echo) so the next capture starts clean."""
+    mic.flush()
 
 # ---------------------------------------------------------------- VAD capture
 def record_utterance(proc, preroll_frames):
@@ -193,7 +276,12 @@ def piper_voice_path():
     hits = glob.glob(os.path.join(VOICES_DIR, "*.onnx"))
     return hits[0] if hits else None
 
-def _paplay(cfg, wav):
+def _play_wav(cfg, wav):
+    if IS_MACOS:
+        # afplay plays the wav at its header sample rate (Piper = 22050 Hz). It uses the
+        # system default output device; per-sink selection (output_sink) isn't supported here.
+        subprocess.run(["afplay", wav], check=False)
+        return
     cmd = ["paplay"]
     if cfg.get("output_sink"):
         cmd += ["-d", cfg["output_sink"]]
@@ -204,7 +292,7 @@ def ack(cfg):
     if not os.path.exists(ACK_WAV):
         t = np.linspace(0, 0.12, int(SAMPLE_RATE * 0.12), endpoint=False)
         save_wav(ACK_WAV, (0.3 * np.sin(2 * np.pi * 880 * t) * 32767).astype(np.int16))
-    _paplay(cfg, ACK_WAV)
+    _play_wav(cfg, ACK_WAV)
 
 def speak(cfg, text):
     voice = piper_voice_path()
@@ -213,7 +301,7 @@ def speak(cfg, text):
     out = os.path.join(PROJECT, "reply.wav")
     p = subprocess.run([PIPER_BIN, "-m", voice, "-f", out], input=text.encode(), stderr=subprocess.DEVNULL)
     if p.returncode == 0 and os.path.exists(out):
-        _paplay(cfg, out)
+        _play_wav(cfg, out)
 
 # ---------------------------------------------------------------- intent gate (voice mode)
 ACTION_RE = re.compile(
@@ -383,6 +471,19 @@ def cmd_status():
 
 # ---------------------------------------------------------------- devices
 def list_audio():
+    if IS_MACOS:
+        try:
+            import sounddevice as sd
+            devs = sd.query_devices()
+            din, dout = sd.default.device            # (input_idx, output_idx); -1 if none
+            inputs = [{"id": str(i), "name": d["name"]} for i, d in enumerate(devs) if d["max_input_channels"] > 0]
+            outputs = [{"id": str(i), "name": d["name"]} for i, d in enumerate(devs) if d["max_output_channels"] > 0]
+            dsrc = devs[din]["name"] if isinstance(din, int) and din >= 0 else ""
+            dsink = devs[dout]["name"] if isinstance(dout, int) and dout >= 0 else ""
+            return {"inputs": inputs, "outputs": outputs, "default_source": dsrc, "default_sink": dsink}
+        except Exception as e:
+            return {"inputs": [], "outputs": [], "default_source": "", "default_sink": "",
+                    "error": f"sounddevice not available ({e}) — run install.sh"}
     def parse(kind):
         try:
             out = subprocess.run(["pactl", "list", "short", kind], capture_output=True, text=True).stdout
@@ -409,14 +510,38 @@ def run_loop(cfg):
     transcribe(np.zeros(SAMPLE_RATE, dtype=np.int16), cfg["whisper_model"])  # warm
     log(f"listening | mic={cfg.get('input_source') or 'default'} | mode={cfg['mode']} | wake={cfg['wake_model']}")
     notify("Claude voice", f"Listening ({cfg['mode']} mode). Say the wake word.")
-    proc = open_mic(cfg)
+    proc = reopen_mic(cfg)
+    if IS_MACOS:
+        # One-shot permission probe: a terminal without Microphone (TCC) permission gets
+        # SILENT ZEROS with no error, so the wake loop would spin forever, deaf and silent.
+        probe = [read_frame(proc) for _ in range(int(0.6 * SAMPLE_RATE / FRAME))]
+        probe = np.concatenate([p for p in probe if p.size]) if any(p.size for p in probe) else np.zeros(0, dtype=np.int16)
+        if rms(probe) < 5:
+            log("⚠️  mic is silent — on macOS this usually means the terminal lacks Microphone permission.")
+            log("    System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch it.")
     preroll = deque(maxlen=int(VAD_PREROLL * SAMPLE_RATE / FRAME))
     last_wake = 0.0
+    silent_frames = 0
+    SILENCE_WARN = int(30 * SAMPLE_RATE / FRAME)   # ~30s of pure silence -> warn once
+    warned_silence = False
     try:
         while True:
             f = read_frame(proc)
             if f.size == 0:
-                log("mic stream ended; restarting"); proc.kill(); time.sleep(0.5); proc = open_mic(cfg); continue
+                log("mic stream ended; restarting"); proc.kill(); time.sleep(0.5); proc = reopen_mic(cfg); continue
+            # sustained-silence watchdog (covers macOS mid-session device/permission loss,
+            # where read() returns zeros forever instead of raising). Re-arms on real audio.
+            if rms(f) < 1.0:
+                silent_frames += 1
+                if silent_frames >= SILENCE_WARN and not warned_silence:
+                    warned_silence = True
+                    if IS_MACOS:
+                        log("⚠️  ~30s of pure silence — likely lost Microphone permission or the input device. "
+                            "Check System Settings → Privacy & Security → Microphone, then relaunch.")
+                    else:
+                        log("⚠️  ~30s of pure silence from the mic — check the input device.")
+            else:
+                silent_frames = 0; warned_silence = False
             preroll.append(f)
             score, _ = wake_score(model, f, key)
             now = time.time()
@@ -448,7 +573,11 @@ def test_mic(cfg):
     proc.kill()
     pcm = np.concatenate(frames) if frames else np.zeros(0, dtype=np.int16)
     out = os.path.join(PROJECT, "mic_test.wav"); save_wav(out, pcm)
-    log(f"level RMS={rms(pcm):.0f} (silence<100, speech>400) — saved {out}")
+    r = rms(pcm)
+    log(f"level RMS={r:.0f} (silence<100, speech>400) — saved {out}")
+    if IS_MACOS and r < 5:
+        log("⚠️  near-silence on macOS usually means the terminal lacks Microphone permission —")
+        log("    System Settings → Privacy & Security → Microphone → enable your terminal, then relaunch it.")
 
 def test_wake(cfg):
     log("say the wake word; scores >0.1 print. Ctrl-C to stop.")

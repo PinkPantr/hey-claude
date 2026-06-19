@@ -35,4 +35,5 @@ claude-voice devices  # verify mic/speakers
 claude-voice start    # or run the /claude-voice skill
 ```
 Then the user says **"hey claude"** and speaks. See `knowledge/install-and-run.md` for prerequisites
-(Linux, PipeWire, kitty for text mode, and the Claude Code CLI logged in).
+(kitty/tmux for text mode, the Claude Code CLI logged in, and a mic). **Linux is tested; macOS is
+experimental and NOT YET TESTED on real hardware** (audio falls back to `sounddevice`/`afplay`).

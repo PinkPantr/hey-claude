@@ -23,8 +23,8 @@ status: active
 
 | field | meaning |
 |---|---|
-| `input_source` | PipeWire/PulseAudio source (mic). Empty = system default. List with `claude-voice devices`. |
-| `output_sink` | output sink for spoken replies. Empty = default. |
+| `input_source` | mic device. Empty = system default. List with `claude-voice devices`. Linux: PipeWire/PulseAudio source name. macOS: `sounddevice` device name (substring-matched; falls back to default if missing). |
+| `output_sink` | output device for spoken replies. Empty = default. Linux only — **ignored on macOS** (`afplay` uses the system default output). |
 | `mode` | `text` (inject into live CLI) or `voice` (headless + spoken). Switchable by voice at runtime. |
 | `wake_model` | `hey_claude.onnx` (bundled, resolved under `models/`), an absolute `.onnx` path, or a built-in name like `hey_jarvis`. |
 | `wake_threshold` | 0–1 detection sensitivity. Lower = more sensitive (more false triggers). 0.5 is a good start. |

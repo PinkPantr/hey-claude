@@ -26,7 +26,9 @@ openWakeWord  ── "hey claude"? ──▶  faster-whisper (base.en, CPU int8)
 
 # Components
 
-- **Capture** — `parecord` (PipeWire/PulseAudio) reads the configured mic as 16 kHz mono.
+- **Capture** — 16 kHz mono int16, frame-by-frame, behind a small cross-platform `MicStream`:
+  Linux uses `parecord` (PipeWire/PulseAudio); **macOS** uses `sounddevice`/PortAudio (experimental,
+  untested). Playback is `paplay` (Linux) / `afplay` (macOS); device enumeration is `pactl` / `sounddevice`.
 - **Wake word** — `openWakeWord` runs a tiny ONNX classifier every frame. It uses two shared feature
   models (`melspectrogram.onnx`, `embedding_model.onnx`) plus the wake model
   (`models/hey_claude.onnx`). Only after a hit above `wake_threshold` does anything else run. See

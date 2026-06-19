@@ -27,11 +27,20 @@ openWakeWord ──"hey claude"?──▶ faster-whisper (base.en)  speech → t
 
 Details in [knowledge/architecture.md](knowledge/architecture.md).
 
+## Platforms
+
+- **Linux — tested & working.**
+- **macOS — experimental, ⚠️ NOT YET TESTED on a real Mac.** Audio uses `sounddevice` + `afplay`
+  instead of PipeWire; everything else is cross-platform. Best-effort until verified — see
+  [knowledge/install-and-run.md](knowledge/install-and-run.md#macos-experimental--untested).
+- **Windows** — not supported.
+
 ## What you need
 
-Linux · PipeWire/PulseAudio (mic) · Python 3.10 (or `uv`) · **Claude Code CLI installed & logged in** ·
-**kitty** (for text mode) · a mic + speakers · internet for the first install. Full table:
-[knowledge/install-and-run.md](knowledge/install-and-run.md).
+Python 3.10+ (or `uv`) · **Claude Code CLI installed & logged in** · **kitty** or **tmux** (for text mode) ·
+a mic (+ speakers for voice mode) · internet for the first install.
+**Linux:** PipeWire/PulseAudio. **macOS:** grant the terminal Microphone permission.
+Full table: [knowledge/install-and-run.md](knowledge/install-and-run.md).
 
 ## Install (one command)
 
@@ -73,5 +82,6 @@ models/             hey_claude.onnx (trained wake word) + oww-features/ (feature
 voices/             Piper TTS voice
 ```
 
-Linux only for now; macOS/Windows are future work. The wake-word *training* process is intentionally not
-in this repo — this is the finished product (see [knowledge/wake-word.md](knowledge/wake-word.md)).
+Linux is tested; macOS is experimental and **not yet tested on real hardware**; Windows is unsupported.
+The wake-word *training* process is intentionally not in this repo — this is the finished product
+(see [knowledge/wake-word.md](knowledge/wake-word.md)).
