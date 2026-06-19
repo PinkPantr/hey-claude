@@ -72,7 +72,8 @@ DEFAULT_CONFIG = {
     "claude_cwd": HOME,          # cwd for headless claude (voice mode)
     "claude_perm": "default",    # safe default; set "bypassPermissions" to let voice mode act autonomously
     "inject": {                  # text mode target
-        "backend": "",           # "kitty" | "tmux"
+        "backend": "",           # "wezterm" (cross-platform, recommended) | "kitty" | "tmux"
+        "wezterm_pane_id": "",   # wezterm: target pane (from $WEZTERM_PANE / `wezterm cli list`)
         "kitty_listen_on": "",
         "kitty_window_id": "",
         "tmux_pane": "",
@@ -347,7 +348,18 @@ def inject_text(cfg, text):
     text = " ".join(text.split())  # collapse newlines/whitespace — one line, one submit
     inj = cfg.get("inject", {})
     backend = inj.get("backend")
-    if backend == "kitty":
+    if backend == "wezterm":
+        # Cross-platform (Linux/macOS/Windows): WezTerm's CLI is the kitty-equivalent that also
+        # runs on Windows. Target a specific pane by id (focus-independent). --no-paste avoids
+        # bracketed paste so Enter submits. Pass "\r" as an argv element → literal CR byte, no
+        # shell escaping (so WezTerm/clap's backslash-r gotcha never applies). Two-step like kitty.
+        base = ["wezterm", "cli", "send-text", "--no-paste"]
+        if inj.get("wezterm_pane_id"):
+            base += ["--pane-id", str(inj["wezterm_pane_id"])]
+        subprocess.run(base + ["--", text], check=False)
+        time.sleep(0.35)
+        subprocess.run(base + ["--", "\r"], check=False)
+    elif backend == "kitty":
         base = ["kitty", "@"]
         if inj.get("kitty_listen_on"):
             base += ["--to", inj["kitty_listen_on"]]
@@ -606,8 +618,9 @@ def main():
     sp = sub.add_parser("start")
     sp.add_argument("--input"); sp.add_argument("--output"); sp.add_argument("--mode", choices=["text", "voice"])
     sp.add_argument("--wake"); sp.add_argument("--threshold", type=float); sp.add_argument("--cwd")
-    sp.add_argument("--inject", choices=["kitty", "tmux"])
+    sp.add_argument("--inject", choices=["wezterm", "kitty", "tmux"])
     sp.add_argument("--kitty-listen"); sp.add_argument("--kitty-window"); sp.add_argument("--tmux-pane")
+    sp.add_argument("--wezterm-pane")
     sub.add_parser("stop"); sub.add_parser("status"); sub.add_parser("devices")
     tp = sub.add_parser("test"); tp.add_argument("stage", choices=["mic", "wake", "stt", "tts", "claude"])
     tp.add_argument("text", nargs="*")
@@ -640,6 +653,7 @@ def main():
         if args.cwd: cfg["claude_cwd"] = args.cwd
         if args.inject:
             cfg["inject"]["backend"] = args.inject
+            if args.wezterm_pane: cfg["inject"]["wezterm_pane_id"] = args.wezterm_pane
             if args.kitty_listen: cfg["inject"]["kitty_listen_on"] = args.kitty_listen
             if args.kitty_window: cfg["inject"]["kitty_window_id"] = args.kitty_window
             if args.tmux_pane: cfg["inject"]["tmux_pane"] = args.tmux_pane

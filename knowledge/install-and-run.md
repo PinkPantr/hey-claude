@@ -13,7 +13,9 @@ status: active
   `sounddevice` (mic + device list) and `afplay` (playback); everything else (wake model, Whisper,
   Piper, kitty/tmux inject, Claude CLI) is cross-platform. Treat it as best-effort until verified —
   please report what works/breaks. See the macOS section below.
-- **Windows** — not supported.
+- **Windows** — not yet a full port (audio + daemon process-control still need Windows work), BUT the
+  hard part — text-mode injection — is **solved**: the `wezterm` backend (`wezterm cli send-text`) runs
+  natively on Windows. So a Windows port is now realistic; it just hasn't been built/tested.
 
 # Prerequisites (what the user must provide)
 
@@ -25,7 +27,7 @@ You provide these standard pieces:
 |---|---|
 | **Python 3.10+** (or `uv`) | the isolated venv |
 | **Claude Code CLI** (`claude`), logged in | the assistant drives Claude (needs an Anthropic plan/key) |
-| **kitty** (with remote control) *or* **tmux** | TEXT mode only — injecting into the live CLI. voice mode needs neither |
+| **WezTerm** (recommended) *or* **kitty** (with remote control) *or* **tmux** | TEXT mode only — injecting into the live CLI. WezTerm is the cross-platform pick (and the path that also works on Windows). voice mode needs none of these |
 | **A microphone** (+ speakers for voice mode) | input / spoken output |
 | **Internet (first install only)** | pip packages + the whisper model download |
 
@@ -45,15 +47,22 @@ Idempotently: detects the OS; creates the venv at `~/.venvs/voice`; pip-installs
 feature models into the venv (no download); prefetches the **whisper `base.en`** model (the only
 download — >100MB, can't ship in git); installs the `claude-voice` launcher and the `/claude-voice` skill.
 
-# Enable text mode (kitty remote control)
+# Enable text mode
 
-In `~/.config/kitty/kitty.conf` (works on Linux and macOS):
-```
-allow_remote_control socket-only
-listen_on unix:/tmp/kitty
-```
-Then **fully restart kitty once**. The `/claude-voice` skill reads `KITTY_LISTEN_ON` / `KITTY_WINDOW_ID`
-and wires injection automatically.
+Run Claude Code inside one of these terminals; the `/claude-voice` skill auto-detects which:
+- **WezTerm (recommended, all platforms incl. Windows)** — no setup. Its CLI remote control is on by
+  default; the skill uses `$WEZTERM_PANE` (this session's pane) as the inject target.
+- **kitty** — add to `~/.config/kitty/kitty.conf`:
+  ```
+  allow_remote_control socket-only
+  listen_on unix:/tmp/kitty
+  ```
+  then **fully restart kitty once**.
+- **tmux** — works out of the box (`send-keys`).
+
+Note: if you launch one terminal from inside another (e.g. WezTerm from a kitty shell), the inner
+terminal inherits the outer's `KITTY_LISTEN_ON`/`TMUX_PANE` — the skill uses `TERM_PROGRAM`/`TERM` to
+pick the terminal you're *actually* in and ignores those stale vars.
 
 # Run
 

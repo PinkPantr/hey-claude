@@ -25,14 +25,16 @@ Ask up to three questions in one call:
 3. **Speaker** — ONLY if they chose Voice. Options from `outputs[].name` (default = `default_sink`).
 
 ## 4. If mode = text → resolve the live-inject target
-Detect the terminal and capture the target, by running:
+**The CURRENT terminal is authoritative.** `KITTY_LISTEN_ON` / `TMUX_PANE` can be **stale** — they're *inherited* when one terminal is launched from inside another (e.g. opening WezTerm from a kitty shell), so `KITTY_LISTEN_ON` being set does **not** mean you're in kitty. Use `TERM_PROGRAM`/`TERM` to decide which terminal you're *actually* in, and ignore env vars belonging to a different one.
 ```
-echo "KITTY_LISTEN_ON=$KITTY_LISTEN_ON ; KITTY_WINDOW_ID=$KITTY_WINDOW_ID ; TMUX_PANE=$TMUX_PANE"
+echo "TERM_PROGRAM=$TERM_PROGRAM ; TERM=$TERM ; WEZTERM_PANE=$WEZTERM_PANE ; KITTY_LISTEN_ON=$KITTY_LISTEN_ON ; KITTY_WINDOW_ID=$KITTY_WINDOW_ID ; TMUX_PANE=$TMUX_PANE"
 ```
-- **kitty:** if `KITTY_LISTEN_ON` is set → use `--inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"`.
-  If it is **empty**, kitty remote control isn't active: confirm `~/.config/kitty/kitty.conf` has `allow_remote_control socket-only` + `listen_on unix:/tmp/kitty` (it should), then tell the user to **fully restart kitty once** and re-run `/claude-voice`. Stop here — do not launch.
-- **tmux:** else if `TMUX_PANE` is set → use `--inject tmux --tmux-pane "$TMUX_PANE"`.
-- **neither:** tell the user text mode needs kitty (with remote control on) or tmux; offer Voice mode instead. Stop.
+Pick the backend for the terminal you're actually in, in this order:
+- **WezTerm (preferred — the only cross-platform option; works on Windows too):** if `TERM_PROGRAM` = `WezTerm` **or** `WEZTERM_PANE` is set → `--inject wezterm --wezterm-pane "$WEZTERM_PANE"`. `$WEZTERM_PANE` is this session's own pane (the inject target). **Ignore any KITTY_*/TMUX_* here — they're stale-inherited.** If unsure, confirm with `wezterm cli list`. (Remote control is on by default.)
+- **kitty:** else if `TERM` = `xterm-kitty` **and** `KITTY_LISTEN_ON` is set → `--inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"`.
+  If `TERM` is kitty but `KITTY_LISTEN_ON` is **empty**, remote control isn't active: confirm `~/.config/kitty/kitty.conf` has `allow_remote_control socket-only` + `listen_on unix:/tmp/kitty`, then tell the user to **fully restart kitty once** and re-run. Stop — do not launch.
+- **tmux:** else if `TMUX_PANE` is set → `--inject tmux --tmux-pane "$TMUX_PANE"`.
+- **none:** tell the user text mode needs WezTerm (recommended), kitty (remote control on), or tmux; offer Voice mode instead. Stop.
 
 ## 5. Launch the daemon (detached so it survives this session)
 Build the command from the answers, e.g.:
@@ -41,7 +43,7 @@ setsid claude-voice start \
   --mode <text|voice> \
   --input "<chosen mic name>" \
   [--output "<chosen sink name>"]  \
-  [--inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"] \
+  [--inject wezterm --wezterm-pane "$WEZTERM_PANE"   # OR: --inject kitty --kitty-listen "$KITTY_LISTEN_ON" --kitty-window "$KITTY_WINDOW_ID"   # OR: --inject tmux --tmux-pane "$TMUX_PANE"] \
   > ~/claude-voice/daemon.log 2>&1 < /dev/null &
 ```
 Then wait ~3s and run `claude-voice status` + `tail -n 5 ~/claude-voice/daemon.log` to confirm it reached "listening".

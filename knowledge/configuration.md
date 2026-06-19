@@ -17,7 +17,7 @@ status: active
   "wake_threshold": 0.5,
   "whisper_model": "base.en",
   "claude_perm": "default",
-  "inject": { "backend": "kitty", "kitty_listen_on": "", "kitty_window_id": "", "tmux_pane": "" }
+  "inject": { "backend": "wezterm", "wezterm_pane_id": "", "kitty_listen_on": "", "kitty_window_id": "", "tmux_pane": "" }
 }
 ```
 
@@ -30,8 +30,9 @@ status: active
 | `wake_threshold` | 0–1 detection sensitivity. Lower = more sensitive (more false triggers). 0.5 is a good start. |
 | `whisper_model` | faster-whisper model id, default `base.en`. `tiny.en` is faster/smaller, `small.en` more accurate. |
 | `claude_perm` | permission mode passed to headless `claude` in voice mode. See the warning below. |
-| `inject.backend` | `kitty` (default) or `tmux` for text mode. |
-| `inject.kitty_listen_on` / `kitty_window_id` | kitty socket + window; usually auto-filled by the `/claude-voice` skill from the environment. |
+| `inject.backend` | text-mode target: **`wezterm`** (recommended — cross-platform, incl. Windows), `kitty`, or `tmux`. The `/claude-voice` skill auto-detects the current terminal and sets this. |
+| `inject.wezterm_pane_id` | WezTerm target pane; auto-filled from `$WEZTERM_PANE` (this session's own pane). Empty → WezTerm uses `$WEZTERM_PANE` of the launching process. |
+| `inject.kitty_listen_on` / `kitty_window_id` | kitty socket + window; auto-filled by the skill from the environment. |
 | `inject.tmux_pane` | target pane if using the tmux backend. |
 
 # claude_perm — default is safe; bypass is opt-in

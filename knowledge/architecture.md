@@ -36,9 +36,12 @@ openWakeWord  ── "hey claude"? ──▶  faster-whisper (base.en, CPU int8)
 - **Speech-to-text** — `faster-whisper` (`base.en`, CPU, int8). Guards reject clips shorter than ~0.35s,
   drop segments with high `no_speech_prob`, and flush the mic to avoid transcribing the assistant's own
   TTS echo.
-- **Output, text mode** — the transcript is sent to the running terminal via `kitty @ send-text` with a
-  trailing carriage return, so it appears in the live Claude Code session and submits. (tmux `send-keys`
-  is an alternative backend.) Claude Code has no native "inject" API; terminal send-text is the mechanism.
+- **Output, text mode** — the transcript is sent to the running terminal (text, then a discrete carriage
+  return) so it appears in the live Claude Code session and submits. Three backends: **`wezterm`**
+  (`wezterm cli send-text --pane-id N --no-paste` — recommended, the only one that also runs on **Windows**),
+  `kitty` (`@ send-text`), and `tmux` (`send-keys`). Claude Code has no native "inject" API; terminal
+  send-text is the mechanism. The skill picks the backend by detecting the current terminal
+  (`TERM_PROGRAM`/`WEZTERM_PANE`/`TERM`), treating env vars from a *different* terminal as stale.
 - **Output, voice mode** — runs headless `claude -p` (cwd defaults to `$HOME`), captures stdout, and
   speaks it with `piper` + the bundled voice in `voices/`. A spoken "confirm" gates state-changing actions.
 

@@ -7,7 +7,8 @@
   "whisper_model": "base.en",
   "claude_perm": "default",
   "inject": {
-    "backend": "kitty",
+    "backend": "wezterm",
+    "wezterm_pane_id": "",
     "kitty_listen_on": "",
     "kitty_window_id": "",
     "tmux_pane": ""
